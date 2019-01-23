@@ -14,6 +14,7 @@ class BiLSTM_CRF(object):
         self.batch_size = args.batch_size
         self.epoch_num = args.epoch
         self.hidden_dim = args.hidden_dim
+        #(3905，300)
         self.embeddings = embeddings
         self.CRF = args.CRF
         self.update_embedding = args.update_embedding
@@ -57,24 +58,28 @@ class BiLSTM_CRF(object):
             word_embeddings = tf.nn.embedding_lookup(params=_word_embeddings,
                                                      ids=self.word_ids,
                                                      name="word_embeddings")
+            #Dropout就是在不同的训练过程中随机扔掉一部分神经元。也就是让某个神经元的激活值以一定的概率p，让其停止工作，这次训练过程中不更新权值，也不参加神经网络的计算。但是它的权重得保留下来（只是暂时不更新而已），因为下次样本输入时它可能又得工作了。
+            #shape(?,?,300):sentense_num,sentense_len
         self.word_embeddings =  tf.nn.dropout(word_embeddings, self.dropout_pl)
 
     def biLSTM_layer_op(self):
         with tf.variable_scope("bi-lstm"):
             cell_fw = LSTMCell(self.hidden_dim)
             cell_bw = LSTMCell(self.hidden_dim)
+            #sequence_length：输入序列的实际长度（可选，默认为输入序列的最大长度）
             (output_fw_seq, output_bw_seq), _ = tf.nn.bidirectional_dynamic_rnn(
                 cell_fw=cell_fw,
                 cell_bw=cell_bw,
                 inputs=self.word_embeddings,
                 sequence_length=self.sequence_lengths,
                 dtype=tf.float32)
+            #(？，？，600)
             output = tf.concat([output_fw_seq, output_bw_seq], axis=-1)
             output = tf.nn.dropout(output, self.dropout_pl)
 
         with tf.variable_scope("proj"):
             W = tf.get_variable(name="W",
-                                shape=[2 * self.hidden_dim, self.num_tags],
+                                shape=[2 * self.hidden_dim, self.num_tags],#(600,15)
                                 initializer=tf.contrib.layers.xavier_initializer(),
                                 dtype=tf.float32)
 
@@ -82,24 +87,34 @@ class BiLSTM_CRF(object):
                                 shape=[self.num_tags],
                                 initializer=tf.zeros_initializer(),
                                 dtype=tf.float32)
-
+            #shape(3,)
             s = tf.shape(output)
-            output = tf.reshape(output, [-1, 2*self.hidden_dim])
-            pred = tf.matmul(output, W) + b
-
+            #(?,600)
+            output = tf.reshape(output, [-1, 2*self.hidden_dim])#hidden_dim=300
+            #(?,15)
+            pred = tf.matmul(output, W) + b#(,15)
+            #(?,?,15)
             self.logits = tf.reshape(pred, [-1, s[1], self.num_tags])
 
     def loss_op(self):
         if self.CRF:
+            #crf_log_likelihood(inputs,tag_indices,sequence_lengths,transition_params=None)
+            # 返回:
+            # log_likelihood: 标量, log - likelihood
+            # transition_params: 形状为[num_tags, num_tags]的转移矩阵
+            #在一个条件随机场里面计算标签序列的最大似然函数
+            #transition_params:(7,7)
             log_likelihood, self.transition_params = crf_log_likelihood(inputs=self.logits,
                                                                    tag_indices=self.labels,
                                                                    sequence_lengths=self.sequence_lengths)
+            #reduce_mean平均值
             self.loss = -tf.reduce_mean(log_likelihood)
 
         else:
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits,
                                                                     labels=self.labels)
             mask = tf.sequence_mask(self.sequence_lengths)
+            #其中b一般是bool型的n维向量，若a.shape=[3,3,3]    b.shape=[3,3]    则  tf.boolean_mask(a,b) 将使a (m维)矩阵仅保留与b中“True”元素同下标的部分，并将结果展开到m-1维
             losses = tf.boolean_mask(losses, mask)
             self.loss = tf.reduce_mean(losses)
 
@@ -107,6 +122,7 @@ class BiLSTM_CRF(object):
 
     def softmax_pred_op(self):
         if not self.CRF:
+            #返回最大的那个数值所在的下标。
             self.labels_softmax_ = tf.argmax(self.logits, axis=-1)
             self.labels_softmax_ = tf.cast(self.labels_softmax_, tf.int32)
 
@@ -127,12 +143,15 @@ class BiLSTM_CRF(object):
                 optim = tf.train.GradientDescentOptimizer(learning_rate=self.lr_pl)
             else:
                 optim = tf.train.GradientDescentOptimizer(learning_rate=self.lr_pl)
-
+            #compute_gradients(loss,var_list=None,gate_gradients=GATE_OP,aggregation_method=None,colocate_gradients_with_ops=False,grad_loss=None)
+            #对于在变量列表（var_list）中的变量计算对于损失函数的梯度,这个函数返回一个（梯度，变量）对的列表，其中梯度就是相对应变量的梯度了。这是minimize()函数的第一个部分
+            #
             grads_and_vars = optim.compute_gradients(self.loss)
             grads_and_vars_clip = [[tf.clip_by_value(g, -self.clip_grad, self.clip_grad), v] for g, v in grads_and_vars]
             self.train_op = optim.apply_gradients(grads_and_vars_clip, global_step=self.global_step)
 
     def init_op(self):
+        # 添加用于初始化变量的节点
         self.init_op = tf.global_variables_initializer()
 
     def add_summary(self, sess):
@@ -147,9 +166,9 @@ class BiLSTM_CRF(object):
     def train(self, train, dev):
         """
 
-        :param train:
-        :param dev:
-        :return:
+        :param train:--train_data
+        :param dev:--dev_data
+        :return:no return
         """
         saver = tf.train.Saver(tf.global_variables())
 
@@ -189,17 +208,18 @@ class BiLSTM_CRF(object):
         """
 
         :param sess:
-        :param train:
-        :param dev:
-        :param tag2label:
-        :param epoch:
+        :param train:--train_data
+        :param dev:--dev_data
+        :param tag2label:--标签对比表
+        :param epoch:--default40轮
         :param saver:
         :return:
         """
-        num_batches = (len(train) + self.batch_size - 1) // self.batch_size
+        num_batches = (len(train) + self.batch_size - 1) // self.batch_size #batch_size 默认64
 
         start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        batches = batch_yield(train, self.batch_size, self.vocab, self.tag2label, shuffle=self.shuffle)
+        batches = batch_yield(train, self.batch_size, self.vocab, self.tag2label, shuffle=self.shuffle)#vocab:word2id
+        #enumerate() 函数用于将一个可遍历的数据对象(如列表、元组或字符串)组合为一个索引序列，同时列出数据和数据下标，一般用在 for 循环当中。
         for step, (seqs, labels) in enumerate(batches):
 
             sys.stdout.write(' processing: {} batch / {} batches.'.format(step + 1, num_batches) + '\r')
@@ -229,7 +249,11 @@ class BiLSTM_CRF(object):
         :param lr:
         :param dropout:
         :return: feed_dict
+                seq_len_list
         """
+        #填充值
+        #word_ids:<class 'list'>: [[273, 55, 1071, 8, 430, 1912, 1092, 7, 52, 21, 569, 73, 14, 2065, 2405, 600, 922, 451, 52, 237, 134, 94, 3904, 94, 8, 805, 786, 725, 831]]
+        #seq_len_list:[29]
         word_ids, seq_len_list = pad_sequences(seqs, pad_mark=0)
 
         feed_dict = {self.word_ids: word_ids,
@@ -249,7 +273,8 @@ class BiLSTM_CRF(object):
 
         :param sess:
         :param dev:
-        :return:
+        :return:label_list
+                seq_len_list
         """
         label_list, seq_len_list = [], []
         for seqs, labels in batch_yield(dev, self.batch_size, self.vocab, self.tag2label, shuffle=False):
@@ -269,10 +294,18 @@ class BiLSTM_CRF(object):
         feed_dict, seq_len_list = self.get_feed_dict(seqs, dropout=1.0)
 
         if self.CRF:
+            #logits:(1，29，7)   transition_params:(7,7)
+            #self.logits:(?,?,7)  self.transition_params (7,7)
             logits, transition_params = sess.run([self.logits, self.transition_params],
                                                  feed_dict=feed_dict)
             label_list = []
+            #Logit：(29，7) seq_len:29
             for logit, seq_len in zip(logits, seq_len_list):
+                #viterbi_decode(score,transition_params)
+                #作用就是返回最好的标签序列.这个函数只能够在测试时使用,在tensorflow外部解码
+                #score: 一个形状为[seq_len, num_tags] matrix of unary potentials. transition_params: 形状为[num_tags, num_tags] 的转移矩阵
+                #返回：viterbi: 一个形状为[seq_len] 显示了最高分的标签索引的列表. viterbi_score: A float containing the score for the Viterbi sequence.
+                #viterbi_seq len:29
                 viterbi_seq, _ = viterbi_decode(logit[:seq_len], transition_params)
                 label_list.append(viterbi_seq)
             return label_list, seq_len_list
