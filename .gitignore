@@ -2,3 +2,4 @@
 .DS_Store
 .idea/
 data_path_save/
+__pycache__/
