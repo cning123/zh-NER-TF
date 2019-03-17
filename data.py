@@ -28,7 +28,7 @@ def read_corpus(corpus_path):#读data，返回char label组成的data
     """
     read corpus and return the list of samples
     :param corpus_path:
-    :return: data
+    :return: data，list形式。文件下的所有句子以及对应的label，以（句子，label）（句子，label）形式的list返回
     """
     data = []
     with open(corpus_path, encoding='utf-8') as fr:
@@ -36,13 +36,16 @@ def read_corpus(corpus_path):#读data，返回char label组成的data
     sent_, tag_ = [], []
     for line in lines:
         if line != '\n':
-            [char, label] = line.strip().split()
-            sent_.append(char)
-            tag_.append(label)
+            try:
+                [char, label] = line.strip().split(' ')#字，B-LABEL
+                sent_.append(char)#句子中所有的字
+                tag_.append(label)#句子中所有的label
+            except Exception as e:
+                print(e)
+                pass
         else:
-            data.append((sent_, tag_))
+            data.append((sent_, tag_))#data：句子和label两个list组成的tuple加入到datalist中
             sent_, tag_ = [], []
-
     return data
 
 
@@ -141,7 +144,7 @@ def pad_sequences(sequences, pad_mark=0):
 
     :param sequences:
     :param pad_mark:
-    :return:
+    :return:扩充或截断的句子序列以及min(len(seq), max_len)
     """
     #29
     #获取sequences中所有list的最长长度
@@ -165,8 +168,8 @@ def batch_yield(data, batch_size, vocab, tag2label, shuffle=False):
     :param vocab:--word2id
     :param tag2label:--tag2label
     :param shuffle:
-    :return:seqs--一批句子中每句话每个字对应的字典下标
-            labels--一批句子中每句话每个字的标签
+    :return:seqs--batch_size句子中每句话每个字对应的字典下标
+            labels--batch_size句子中每句话每个字的标签
     """
     if shuffle:
         random.shuffle(data)

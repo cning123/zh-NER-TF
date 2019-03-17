@@ -22,7 +22,7 @@ class NER_DEMO(object):
         self.sess = tf.Session(config=config)
         self.saver.restore(self.sess, ckpt_file)
 
-    def  predict(self,demo_sent):
+    def predict(self,demo_sent):
         if demo_sent == '' or demo_sent.isspace():
             print('See you next time!')
             return {}

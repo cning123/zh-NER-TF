@@ -10,10 +10,14 @@ app = Flask(__name__)
 args = get_args()
 ner = NER_DEMO(args)
 
-@app.route("/predict/",methods=['POST'])
+@app.route("/predict/",methods=['POST','GET'])
 def predict():
-    sentence = request.form['sentence']
-    if request.method == 'POST' and sentence:
+    if request.method == 'GET':
+        sentence = request.args['sentence']
+    else:
+        sentence = request.form['sentence']
+
+    if  sentence:
         entities = ner.predict(sentence)
     # print('x')
         return json.dumps(entities,ensure_ascii=False)

@@ -12,7 +12,7 @@ from eval import conlleval
 class BiLSTM_CRF(object):
     def __init__(self, args, embeddings, tag2label, vocab, paths, config):
         self.batch_size = args.batch_size
-        self.epoch_num = args.epoch
+        self.epoch_num = args.epoch#40
         self.hidden_dim = args.hidden_dim
         #(3905，300)
         self.embeddings = embeddings
@@ -24,7 +24,7 @@ class BiLSTM_CRF(object):
         self.clip_grad = args.clip
         self.tag2label = tag2label
         self.num_tags = len(tag2label)
-        self.vocab = vocab
+        self.vocab = vocab#word2id
         self.shuffle = args.shuffle
         self.model_path = paths['model_path']
         self.summary_path = paths['summary_path']
@@ -165,7 +165,6 @@ class BiLSTM_CRF(object):
 
     def train(self, train, dev):
         """
-
         :param train:--train_data
         :param dev:--dev_data
         :return:no return
@@ -176,7 +175,7 @@ class BiLSTM_CRF(object):
             sess.run(self.init_op)
             self.add_summary(sess)
 
-            for epoch in range(self.epoch_num):
+            for epoch in range(self.epoch_num):#40
                 self.run_one_epoch(sess, train, dev, self.tag2label, epoch, saver)
 
     def test(self, test):
@@ -206,25 +205,24 @@ class BiLSTM_CRF(object):
 
     def run_one_epoch(self, sess, train, dev, tag2label, epoch, saver):
         """
-
         :param sess:
         :param train:--train_data
         :param dev:--dev_data
         :param tag2label:--标签对比表
         :param epoch:--default40轮
-        :param saver:
+        :param saver:--保存一些基本参数
         :return:
         """
         num_batches = (len(train) + self.batch_size - 1) // self.batch_size #batch_size 默认64
 
         start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        batches = batch_yield(train, self.batch_size, self.vocab, self.tag2label, shuffle=self.shuffle)#vocab:word2id
+        batches = batch_yield(train, self.batch_size, self.vocab, self.tag2label, shuffle=self.shuffle)#vocab:word2id#返回句子字典序列和标签序列#return batch_size的seqs and labels
         #enumerate() 函数用于将一个可遍历的数据对象(如列表、元组或字符串)组合为一个索引序列，同时列出数据和数据下标，一般用在 for 循环当中。
         for step, (seqs, labels) in enumerate(batches):
 
             sys.stdout.write(' processing: {} batch / {} batches.'.format(step + 1, num_batches) + '\r')
             step_num = epoch * num_batches + step + 1
-            feed_dict, _ = self.get_feed_dict(seqs, labels, self.lr, self.dropout_keep_prob)
+            feed_dict, _ = self.get_feed_dict(seqs, labels, self.lr, self.dropout_keep_prob)#learning rate 0.001,dropout0.5
             _, loss_train, summary, step_num_ = sess.run([self.train_op, self.loss, self.merged, self.global_step],
                                                          feed_dict=feed_dict)
             if step + 1 == 1 or (step + 1) % 300 == 0 or step + 1 == num_batches:
@@ -244,12 +242,12 @@ class BiLSTM_CRF(object):
     def get_feed_dict(self, seqs, labels=None, lr=None, dropout=None):
         """
 
-        :param seqs:
-        :param labels:
-        :param lr:
+        :param seqs:句子的字典序列
+        :param labels:句子的标签序列
+        :param lr:learning rate
         :param dropout:
-        :return: feed_dict
-                seq_len_list
+        :return: feed_dict--{word_ids:seq_len_list}
+                seq_len_list--min(len(seq), max_len)
         """
         #填充值
         #word_ids:<class 'list'>: [[273, 55, 1071, 8, 430, 1912, 1092, 7, 52, 21, 569, 73, 14, 2065, 2405, 600, 922, 451, 52, 237, 134, 94, 3904, 94, 8, 805, 786, 725, 831]]
@@ -285,7 +283,7 @@ class BiLSTM_CRF(object):
 
     def predict_one_batch(self, sess, seqs):
         """
-
+        用维特比算出最好的标签序列
         :param sess:
         :param seqs:
         :return: label_list
